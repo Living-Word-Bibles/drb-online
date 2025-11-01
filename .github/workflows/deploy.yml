@@ -21,13 +21,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug tree
+        run: |
+          echo "Node version that will be installed: 20.x"
+          ls -la
+          echo "----- src -----"; ls -la src || true
+          echo "----- data -----"; ls -la data || true
+          echo "----- public -----"; ls -la public || true
+          grep -n "REMOTE_DATA_URL" -n build.mjs || true
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Build site
+        env:
+          NODE_OPTIONS: "--trace-uncaught"
         run: |
+          set -e
           npm ci --ignore-scripts --no-audit --fund=false || true
           node build.mjs
 
