@@ -2,9 +2,7 @@ name: Build & Deploy DRB to GitHub Pages
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
@@ -29,10 +27,6 @@ jobs:
           node-version: 20
 
       - name: Build site
-        # 🔁 Remote-data fallback (pin to a commit like you did for WEB)
-        env:
-          DRB_REMOTE_DATA_URL: "https://cdn.jsdelivr.net/gh/YourOrg/YourRepo@<pinned-commit>/data/drb_bible.json"
-          # e.g. "https://raw.githubusercontent.com/Living-Word-Bibles/drb-source/<commit>/data/drb_bible.json"
         run: |
           npm ci --ignore-scripts --no-audit --fund=false || true
           node build.mjs
