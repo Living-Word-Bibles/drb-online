@@ -26,14 +26,14 @@ jobs:
         with:
           node-version: 20
 
-      - name: Debug tree
+      - name: Debug tree (top 2 levels)
         run: |
           node -v
           ls -la
-          echo "---- ALT_DIR ----"
-          ls -la Bible-DouayRheims-main || true
-          echo "---- data ----"
-          ls -la data || true
+          echo "---- data (recursive 2) ----"
+          find data -maxdepth 2 -type f -printf "%p\n" 2>/dev/null || true
+          echo "---- Bible-DouayRheims-main (recursive 2) ----"
+          find Bible-DouayRheims-main -maxdepth 2 -type f -printf "%p\n" 2>/dev/null || true
 
       - name: Build DRB
         run: node build.mjs
