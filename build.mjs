@@ -31,7 +31,7 @@ const CONFIG = {
 
   // Paths
   DATA_JSON: path.join(__dirname, "data", "drb_bible.json"),
-  DATA_BOOKS_DIR: path.join(__dirname, "data", "books"),
+  DATA_BOOKS_DIR: path.join(__dirname, "Bible-DouayRheims-main"),
   TEMPLATE_HTML: path.join(__dirname, "src", "template.html"),
   STYLES_CSS: path.join(__dirname, "src", "styles.css"),
   PUBLIC_DIR: path.join(__dirname, "public"),
