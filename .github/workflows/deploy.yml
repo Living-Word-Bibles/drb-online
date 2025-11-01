@@ -23,12 +23,13 @@ jobs:
 
       - name: Debug tree
         run: |
-          echo "Node version that will be installed: 20.x"
+          node -v
           ls -la
           echo "----- src -----"; ls -la src || true
           echo "----- data -----"; ls -la data || true
           echo "----- public -----"; ls -la public || true
-          grep -n "REMOTE_DATA_URL" -n build.mjs || true
+          echo "REMOTE_DATA_URL in build.mjs:"
+          grep -n "REMOTE_DATA_URL" build.mjs || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
