@@ -2,7 +2,7 @@ name: Build & Deploy DRB to GitHub Pages
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -12,42 +12,36 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out
         uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Debug tree
         run: |
           node -v
           ls -la
-          echo "----- src -----"; ls -la src || true
-          echo "----- data -----"; ls -la data || true
-          echo "----- public -----"; ls -la public || true
-          echo "REMOTE_DATA_URL in build.mjs:"
-          grep -n "REMOTE_DATA_URL" build.mjs || true
+          echo "---- ALT_DIR ----"
+          ls -la Bible-DouayRheims-main || true
+          echo "---- data ----"
+          ls -la data || true
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build site
-        env:
-          NODE_OPTIONS: "--trace-uncaught"
-        run: |
-          set -e
-          npm ci --ignore-scripts --no-audit --fund=false || true
-          node build.mjs
+      - name: Build DRB
+        run: node build.mjs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: ./dist
 
   deploy:
     needs: build
@@ -56,6 +50,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
