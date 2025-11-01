@@ -1,15 +1,35 @@
 // DRB Online (Alpha 1.0) — Living Word Bibles
 // Static verse-per-page generator for drb.livingwordbibles.com
-// Includes: remote data fallback, AdSense injection, DRB header/footer support
+// Robust remote data fallback + AdSense injection + clear diagnostics
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Node 18+ has global fetch; add a tiny polyfill guard for safety.
+if (typeof fetch !== "function") {
+  const https = await import("node:https");
+  globalThis.fetch = (url) =>
+    new Promise((resolve, reject) => {
+      https.get(url, (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () =>
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: async () => JSON.parse(data),
+            text: async () => data,
+          })
+        );
+      }).on("error", reject);
+    });
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ===== Config — adjust as needed
+// ===== Config — adjust if needed
 const CONFIG = {
   VERSION_LABEL: "DRB Online (Alpha 1.0)",
   TRANSLATION_ABBR: "drb",
@@ -18,19 +38,17 @@ const CONFIG = {
   BASE_URL: "https://drb.livingwordbibles.com",
   LOGO_URL:
     "https://static1.squarespace.com/static/68d6b7d6d21f02432fd7397b/t/690209b3567af44aabfbdaca/1761741235124/LivingWordBibles01.png",
-
-  // “The Holy Bible” header button & logo click target:
   LOGO_DEST: "https://www.livingwordbibles.com/read-the-bible-online/drb",
-
   SHARE_ORDER: ["facebook", "instagram", "x", "linkedin", "email", "copy"],
   FONT_FAMILY: "EB Garamond",
 
-  // ✅ Google AdSense Publisher ID (used in template via {{ADSENSE_CLIENT}})
+  // ✅ Google AdSense Publisher ID
   ADSENSE_CLIENT: "ca-pub-5303063222439969",
 
-  // ✅ Remote data fallback (easy mode — no secrets needed)
-  // Uses jsDelivr on THIS repo’s default branch (per your standard: use @main, not @master)
-  // If you host the big JSON elsewhere, just change this URL.
+  // ✅ Remote data fallback (easy mode, no secrets)
+  // IMPORTANT: Point this to where your full DRB JSON actually lives.
+  // If you’ve committed data/drb_bible.json to THIS repo, you can leave this;
+  // otherwise change it to your real source repo + pinned commit.
   REMOTE_DATA_URL:
     "https://cdn.jsdelivr.net/gh/Living-Word-Bibles/drb-online@main/data/drb_bible.json",
 
@@ -51,7 +69,7 @@ const readIfExists = (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : nul
 const htmlEscape = (s) =>
   String(s).replace(/[&<>\"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// Map common aliases → DRB canonical naming (for ordering)
+// === Canon aliases for DRB ordering
 const NAME_ALIASES = new Map([
   ["joshua", "Josue"],
   ["1 samuel", "1 Kings"],
@@ -87,6 +105,12 @@ function canonicalizeName(name) {
 }
 
 function loadTemplate() {
+  // Sanity checks with explicit errors help CI logs
+  for (const p of [CONFIG.TEMPLATE_HTML, CONFIG.STYLES_CSS]) {
+    if (!fs.existsSync(p)) {
+      throw new Error(`Required file missing: ${p}. Check 'src/' paths and casing.`);
+    }
+  }
   const html = fs.readFileSync(CONFIG.TEMPLATE_HTML, "utf8");
   const css = fs.readFileSync(CONFIG.STYLES_CSS, "utf8");
   return { html, css };
@@ -95,32 +119,44 @@ function loadTemplate() {
 // ===== Data loaders (local first, then remote)
 async function fetchRemoteJson(url) {
   if (!url) return null;
+  console.log(`[DRB] Fetching remote JSON…\nURL: ${url}`);
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "drb-online-build/1.0" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     const json = await res.json();
-    console.log(`Using remote DRB data from: ${url}`);
+    console.log("[DRB] Remote JSON loaded OK.");
     return json;
   } catch (err) {
-    console.error("Remote data fetch failed:", err.message);
+    console.error(`[DRB] Remote fetch failed: ${err.message}`);
     return null;
   }
 }
 
 async function detectData() {
+  // 1) Local single JSON
   if (fs.existsSync(CONFIG.DATA_JSON)) {
+    console.log(`[DRB] Using local JSON: ${CONFIG.DATA_JSON}`);
     const raw = JSON.parse(fs.readFileSync(CONFIG.DATA_JSON, "utf8"));
     return normalizeFromJson(raw);
   }
+  // 2) Local folder layout
   if (fs.existsSync(CONFIG.DATA_BOOKS_DIR)) {
+    console.log(`[DRB] Using local folder data: ${CONFIG.DATA_BOOKS_DIR}`);
     return normalizeFromFolder(CONFIG.DATA_BOOKS_DIR);
   }
+  // 3) Remote JSON fallback
   const remote = await fetchRemoteJson(CONFIG.REMOTE_DATA_URL);
   if (remote) return normalizeFromJson(remote);
 
-  throw new Error(
-    "No input data found. Provide data/drb_bible.json, or data/books/<Book>/<chapter>.txt, or set CONFIG.REMOTE_DATA_URL to a hosted JSON."
-  );
+  // 4) Hard fail with guidance
+  const msg =
+    "No input data found.\n" +
+    "- Add data/drb_bible.json (preferred), OR\n" +
+    "- Add data/books/<Book>/<chapter>.(txt|json), OR\n" +
+    "- Set CONFIG.REMOTE_DATA_URL to a pinned JSON URL (jsDelivr or raw.githubusercontent @ commit).\n";
+  throw new Error(msg);
 }
 
 function normalizeFromJson(raw) {
@@ -175,7 +211,7 @@ function normalizeFromFolder(root) {
   return orderByCanon(books);
 }
 
-// Catholic 73-book order (DRB naming)
+// DRB 73-book order
 function orderByCanon(books) {
   const canon = [
     "Genesis","Exodus","Leviticus","Numbers","Deuteronomy",
@@ -246,7 +282,6 @@ function renderPage(tpl, e) {
     .replaceAll("{{SHARE_TITLE}}", htmlEscape(shareTitle))
     .replaceAll("{{SHARE_URL}}", htmlEscape(canonicalUrl))
     .replaceAll("{{CSS_INLINE}}", tpl.css)
-    // ✅ AdSense client for template
     .replaceAll("{{ADSENSE_CLIENT}}", htmlEscape(CONFIG.ADSENSE_CLIENT))
     .replaceAll("{{PREV_URL}}", prevUrl ? htmlEscape(prevUrl) : "")
     .replaceAll("{{NEXT_URL}}", nextUrl ? htmlEscape(nextUrl) : "")
@@ -281,7 +316,6 @@ function renderIndex(tpl, books) {
     .replaceAll("{{SHARE_TITLE}}", htmlEscape(CONFIG.SITE_TITLE))
     .replaceAll("{{SHARE_URL}}", htmlEscape(CONFIG.BASE_URL + "/"))
     .replaceAll("{{CSS_INLINE}}", tpl.css)
-    // ✅ AdSense client for template
     .replaceAll("{{ADSENSE_CLIENT}}", htmlEscape(CONFIG.ADSENSE_CLIENT))
     .replaceAll("{{PREV_URL}}", "")
     .replaceAll("{{NEXT_URL}}", "")
@@ -311,63 +345,59 @@ function writeFileSafe(outPath, content) {
 }
 
 function buildSitemaps(entries) {
-  // Keep under 50k URLs per file (use 45k margin)
   const chunkSize = 45000;
   const chunks = [];
   for (let i = 0; i < entries.length; i += chunkSize) chunks.push(entries.slice(i, i + chunkSize));
 
   const smFiles = [];
   chunks.forEach((chunk, idx) => {
-    const xml = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-    ]
-      .concat(
-        chunk.map((e) => {
-          const loc = CONFIG.BASE_URL + urlFor(e);
-          return `<url><loc>${loc}</loc></url>`;
-        })
-      )
-      .concat(["</urlset>"])
-      .join("\n");
+    const xml =
+      ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+        .concat(
+          chunk.map((e) => {
+            const loc = CONFIG.BASE_URL + urlFor(e);
+            return `<url><loc>${loc}</loc></url>`;
+          })
+        )
+        .concat(["</urlset>"])
+        .join("\n");
     const fn = idx === 0 ? "sitemap.xml" : `sitemap-${idx + 1}.xml`;
     writeFileSafe(path.join(CONFIG.DIST_DIR, fn), xml);
     smFiles.push(fn);
   });
 
-  // robots.txt lists all sitemaps
   const robots = ["User-agent: *", "Allow: /", ...smFiles.map((fn) => `Sitemap: ${CONFIG.BASE_URL}/${fn}`)].join("\n");
   writeFileSafe(path.join(CONFIG.DIST_DIR, "robots.txt"), robots);
 }
 
 async function main() {
-  fs.rmSync(CONFIG.DIST_DIR, { recursive: true, force: true });
-  ensureDir(CONFIG.DIST_DIR);
+  try {
+    fs.rmSync(CONFIG.DIST_DIR, { recursive: true, force: true });
+    ensureDir(CONFIG.DIST_DIR);
 
-  const { html, css } = loadTemplate();
-  const tpl = { html, css };
-  const books = await detectData();
-  const entries = linearize(books);
+    const { html, css } = loadTemplate();
+    const tpl = { html, css };
+    const books = await detectData();
+    const entries = linearize(books);
 
-  // index (toc)
-  writeFileSafe(path.join(CONFIG.DIST_DIR, "index.html"), renderIndex(tpl, books));
+    writeFileSafe(path.join(CONFIG.DIST_DIR, "index.html"), renderIndex(tpl, books));
 
-  // verse pages
-  let count = 0;
-  for (const e of entries) {
-    const outPath = path.join(CONFIG.DIST_DIR, urlFor(e), "index.html");
-    const page = renderPage(tpl, e);
-    writeFileSafe(outPath, page);
-    count++;
+    let count = 0;
+    for (const e of entries) {
+      const outPath = path.join(CONFIG.DIST_DIR, urlFor(e), "index.html");
+      const page = renderPage(tpl, e);
+      writeFileSafe(outPath, page);
+      count++;
+    }
+
+    copyPublic();
+    buildSitemaps(entries);
+
+    console.log(`Built ${count} verse pages across ${books.length} books → dist/`);
+  } catch (err) {
+    console.error("[DRB] Build failed with error:\n" + err.message);
+    process.exit(1);
   }
-
-  // public assets (CNAME, etc.)
-  copyPublic();
-
-  // sitemaps + robots
-  buildSitemaps(entries);
-
-  console.log(`Built ${count} verse pages across ${books.length} books → dist/`);
 }
 
 main();
