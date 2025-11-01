@@ -1,35 +1,15 @@
-// DRB Online (Alpha 1.0) — Living Word Bibles
+// DRB Online — Living Word Bibles
 // Static verse-per-page generator for drb.livingwordbibles.com
-// Robust remote data fallback + AdSense injection + clear diagnostics
+// Keeps: AdSense injection, header/footer, optional remote JSON fallback (no top-level await)
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Node 18+ has global fetch; add a tiny polyfill guard for safety.
-if (typeof fetch !== "function") {
-  const https = await import("node:https");
-  globalThis.fetch = (url) =>
-    new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        let data = "";
-        res.on("data", (c) => (data += c));
-        res.on("end", () =>
-          resolve({
-            ok: res.statusCode >= 200 && res.statusCode < 300,
-            status: res.statusCode,
-            json: async () => JSON.parse(data),
-            text: async () => data,
-          })
-        );
-      }).on("error", reject);
-    });
-}
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ===== Config — adjust if needed
+// ===== Config (adjust only what you need)
 const CONFIG = {
   VERSION_LABEL: "DRB Online (Alpha 1.0)",
   TRANSLATION_ABBR: "drb",
@@ -42,15 +22,12 @@ const CONFIG = {
   SHARE_ORDER: ["facebook", "instagram", "x", "linkedin", "email", "copy"],
   FONT_FAMILY: "EB Garamond",
 
-  // ✅ Google AdSense Publisher ID
+  // ✅ Your AdSense publisher ID
   ADSENSE_CLIENT: "ca-pub-5303063222439969",
 
-  // ✅ Remote data fallback (easy mode, no secrets)
-  // IMPORTANT: Point this to where your full DRB JSON actually lives.
-  // If you’ve committed data/drb_bible.json to THIS repo, you can leave this;
-  // otherwise change it to your real source repo + pinned commit.
-  REMOTE_DATA_URL:
-    "https://cdn.jsdelivr.net/gh/Living-Word-Bibles/drb-online@main/data/drb_bible.json",
+  // ✅ Optional remote JSON fallback (set to a PINNED URL if you want CI to pull data)
+  // Leave "" to skip remote fetch and rely on local data/ files.
+  REMOTE_DATA_URL: "",
 
   // Paths
   DATA_JSON: path.join(__dirname, "data", "drb_bible.json"),
@@ -69,33 +46,18 @@ const readIfExists = (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : nul
 const htmlEscape = (s) =>
   String(s).replace(/[&<>\"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// === Canon aliases for DRB ordering
+// Canon aliases for DRB ordering
 const NAME_ALIASES = new Map([
-  ["joshua", "Josue"],
-  ["1 samuel", "1 Kings"],
-  ["2 samuel", "2 Kings"],
-  ["1 kings", "3 Kings"],
-  ["2 kings", "4 Kings"],
-  ["1 chronicles", "1 Paralipomenon"],
-  ["2 chronicles", "2 Paralipomenon"],
-  ["ezra", "1 Esdras"],
-  ["nehemiah", "2 Esdras"],
-  ["song of songs", "Canticles"],
-  ["song of solomon", "Canticles"],
-  ["isaiah", "Isaias"],
-  ["jeremiah", "Jeremias"],
-  ["ezekiel", "Ezechiel"],
-  ["hosea", "Osee"],
-  ["obadiah", "Abdias"],
-  ["jonah", "Jonas"],
-  ["micah", "Micheas"],
-  ["habakkuk", "Habacuc"],
-  ["zephaniah", "Sophonias"],
-  ["haggai", "Aggeus"],
-  ["zechariah", "Zacharias"],
-  ["malachi", "Malachias"],
-  ["wisdom of solomon", "Wisdom"],
-  ["sirach", "Ecclesiasticus"],
+  ["joshua", "Josue"], ["1 samuel", "1 Kings"], ["2 samuel", "2 Kings"],
+  ["1 kings", "3 Kings"], ["2 kings", "4 Kings"],
+  ["1 chronicles", "1 Paralipomenon"], ["2 chronicles", "2 Paralipomenon"],
+  ["ezra", "1 Esdras"], ["nehemiah", "2 Esdras"],
+  ["song of songs", "Canticles"], ["song of solomon", "Canticles"],
+  ["isaiah", "Isaias"], ["jeremiah", "Jeremias"], ["ezekiel", "Ezechiel"],
+  ["hosea", "Osee"], ["obadiah", "Abdias"], ["jonah", "Jonas"],
+  ["micah", "Micheas"], ["habakkuk", "Habacuc"], ["zephaniah", "Sophonias"],
+  ["haggai", "Aggeus"], ["zechariah", "Zacharias"], ["malachi", "Malachias"],
+  ["wisdom of solomon", "Wisdom"], ["sirach", "Ecclesiasticus"],
   ["revelation", "Apocalypse"],
 ]);
 
@@ -105,10 +67,9 @@ function canonicalizeName(name) {
 }
 
 function loadTemplate() {
-  // Sanity checks with explicit errors help CI logs
   for (const p of [CONFIG.TEMPLATE_HTML, CONFIG.STYLES_CSS]) {
     if (!fs.existsSync(p)) {
-      throw new Error(`Required file missing: ${p}. Check 'src/' paths and casing.`);
+      throw new Error(`Required file missing: ${p}. Make sure 'src/template.html' and 'src/styles.css' exist (exact casing).`);
     }
   }
   const html = fs.readFileSync(CONFIG.TEMPLATE_HTML, "utf8");
@@ -116,47 +77,38 @@ function loadTemplate() {
   return { html, css };
 }
 
-// ===== Data loaders (local first, then remote)
+// ===== Data (local first, optional remote)
 async function fetchRemoteJson(url) {
   if (!url) return null;
-  console.log(`[DRB] Fetching remote JSON…\nURL: ${url}`);
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const json = await res.json();
-    console.log("[DRB] Remote JSON loaded OK.");
-    return json;
-  } catch (err) {
-    console.error(`[DRB] Remote fetch failed: ${err.message}`);
+  if (typeof fetch !== "function") {
+    console.error("[DRB] fetch() is unavailable. Remove REMOTE_DATA_URL or upgrade Node to 18+.");
     return null;
   }
+  console.log(`[DRB] Fetching remote JSON: ${url}`);
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error(`[DRB] Remote fetch failed: HTTP ${res.status}`);
+    return null;
+  }
+  return await res.json();
 }
 
 async function detectData() {
-  // 1) Local single JSON
   if (fs.existsSync(CONFIG.DATA_JSON)) {
     console.log(`[DRB] Using local JSON: ${CONFIG.DATA_JSON}`);
     const raw = JSON.parse(fs.readFileSync(CONFIG.DATA_JSON, "utf8"));
     return normalizeFromJson(raw);
   }
-  // 2) Local folder layout
   if (fs.existsSync(CONFIG.DATA_BOOKS_DIR)) {
     console.log(`[DRB] Using local folder data: ${CONFIG.DATA_BOOKS_DIR}`);
     return normalizeFromFolder(CONFIG.DATA_BOOKS_DIR);
   }
-  // 3) Remote JSON fallback
   const remote = await fetchRemoteJson(CONFIG.REMOTE_DATA_URL);
   if (remote) return normalizeFromJson(remote);
 
-  // 4) Hard fail with guidance
-  const msg =
-    "No input data found.\n" +
-    "- Add data/drb_bible.json (preferred), OR\n" +
-    "- Add data/books/<Book>/<chapter>.(txt|json), OR\n" +
-    "- Set CONFIG.REMOTE_DATA_URL to a pinned JSON URL (jsDelivr or raw.githubusercontent @ commit).\n";
-  throw new Error(msg);
+  throw new Error(
+    "No input data found.\n- Add data/drb_bible.json, or\n- Add data/books/<Book>/<chapter>.(txt|json), or\n- Set CONFIG.REMOTE_DATA_URL to a pinned JSON URL."
+  );
 }
 
 function normalizeFromJson(raw) {
@@ -395,7 +347,7 @@ async function main() {
 
     console.log(`Built ${count} verse pages across ${books.length} books → dist/`);
   } catch (err) {
-    console.error("[DRB] Build failed with error:\n" + err.message);
+    console.error("[DRB] Build failed:\n" + err.message);
     process.exit(1);
   }
 }
