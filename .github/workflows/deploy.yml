@@ -34,14 +34,15 @@ jobs:
         with:
           node-version: 20
 
-      - name: Quick repo scan (non-fatal)
+      - name: Sanity scan (non-fatal)
         run: |
+          set -euxo pipefail
           ls -la
-          echo "First lines / size if root JSON exists:"
+          echo "If exists, show first lines and size of EntireBible-DR.json:"
           [ -f EntireBible-DR.json ] && head -n 3 EntireBible-DR.json || true
           [ -f EntireBible-DR.json ] && wc -c EntireBible-DR.json || true
           echo "Sample under Douay-Rheims/:"
-          [ -d Douay-Rheims ] && find Douay-Rheims -type f | head -n 30 || true
+          [ -d Douay-Rheims ] && find Douay-Rheims -type f | head -n 25 || true
 
       - name: Build site
         run: node build.mjs
