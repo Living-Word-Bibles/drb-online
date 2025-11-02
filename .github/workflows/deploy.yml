@@ -17,34 +17,56 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+
     steps:
-      - name: Check out (with Git LFS)
+      - name: Checkout (with Git LFS)
         uses: actions/checkout@v4
         with:
           lfs: true
           fetch-depth: 0
 
-      - name: Use Node.js 20
-      ...
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Sanity check — is the real JSON here?
+      - name: Sanity check — verify root JSON is real
+        shell: bash
         run: |
-          node -v
+          set -euo pipefail
           ls -la
-          echo "Top of EntireBible-DR.json (should NOT be an LFS pointer):"
+          if [[ ! -f "EntireBible-DR.json" ]]; then
+            echo "❌ MISSING: EntireBible-DR.json at repo root"
+            echo "Nearby candidates (depth 2):"
+            find . -maxdepth 2 -type f -iname "*douay*.json" -o -iname "*dr*.json" -o -iname "EntireBible-DR.json" | sed 's/^/ - /'
+            exit 1
+          fi
+          echo "Top of file (should NOT be a Git LFS pointer):"
           head -n 3 EntireBible-DR.json || true
           echo "Size:"
           wc -c EntireBible-DR.json || true
-          file EntireBible-DR.json || true
-          if grep -q "git-lfs.github.com/spec/v1" EntireBible-DR.json; then
-            echo "❌ LFS pointer detected. The large file wasn't fetched."; exit 1
+          if head -n1 EntireBible-DR.json | grep -q "git-lfs.github.com/spec/v1"; then
+            echo "❌ LFS pointer detected; the real blob is not present."
+            echo "Make sure the file is pushed to LFS and checkout uses lfs: true."
+            exit 1
           fi
+          # quick JSON parse (will throw on invalid JSON)
+          node -e "JSON.parse(require('fs').readFileSync('EntireBible-DR.json','utf8')); console.log('✅ JSON parses OK')"
 
       - name: Build site
         run: node build.mjs
+
+      - name: Post-build diagnostics
+        run: |
+          echo "Files in dist:"
+          find dist -type f | wc -l
+          echo "Sample paths:"
+          find dist -type f | head -n 20
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
