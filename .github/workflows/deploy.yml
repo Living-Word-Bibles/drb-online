@@ -2,7 +2,7 @@ name: Build & Deploy DRB to GitHub Pages
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -19,12 +19,43 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max-old-space-size=6144
+
     steps:
       - name: Checkout (with Git LFS)
         uses: actions/checkout@v4
         with:
           lfs: true
           fetch-depth: 0
+
+      # Make 100% sure we have real blobs (not LFS pointers)
+      - name: Ensure LFS blobs are present
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git lfs install
+          git lfs fetch --all || true
+          git lfs checkout || true
+          git lfs pull || true
+
+          echo "== ROOT LISTING =="
+          ls -la
+
+          echo "== Probe candidate JSONs =="
+          for f in "EntireBible-DR.json" "data/EntireBible-DR.json" "bible_noreset.json" "data/bible_noreset.json"; do
+            if [[ -f "$f" ]]; then
+              echo "-- $f (first line) --"
+              head -n 1 "$f" || true
+              echo "-- size --"
+              wc -c "$f" || true
+              if head -n1 "$f" | grep -q 'git-lfs.github.com/spec/v1'; then
+                echo "::error::Git LFS pointer detected in $f (real JSON not downloaded). Check LFS quota/bandwidth."
+                exit 2
+              fi
+            fi
+          done
+
+          echo "== Sample files under Douay-Rheims/ (if exists) =="
+          [[ -d Douay-Rheims ]] && find Douay-Rheims -type f | head -n 25 || echo "(no Douay-Rheims/ folder)"
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -33,16 +64,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Sanity scan (non-fatal)
-        run: |
-          set -euxo pipefail
-          ls -la
-          echo "If exists, show first lines and size of EntireBible-DR.json:"
-          [ -f EntireBible-DR.json ] && head -n 3 EntireBible-DR.json || true
-          [ -f EntireBible-DR.json ] && wc -c EntireBible-DR.json || true
-          echo "Sample under Douay-Rheims/:"
-          [ -d Douay-Rheims ] && find Douay-Rheims -type f | head -n 25 || true
 
       - name: Build site
         run: node build.mjs
