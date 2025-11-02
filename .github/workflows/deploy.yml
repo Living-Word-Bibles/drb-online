@@ -35,18 +35,13 @@ jobs:
           node-version: 20
 
       - name: Quick repo scan (non-fatal)
-        shell: bash
         run: |
-          set -e
-          echo "Root listing:"
           ls -la
-          echo "If present, show first lines & size of EntireBible-DR.json:"
+          echo "First lines / size if root JSON exists:"
           [ -f EntireBible-DR.json ] && head -n 3 EntireBible-DR.json || true
           [ -f EntireBible-DR.json ] && wc -c EntireBible-DR.json || true
-          echo "Sample files under Douay-Rheims/ (if exists):"
+          echo "Sample under Douay-Rheims/:"
           [ -d Douay-Rheims ] && find Douay-Rheims -type f | head -n 30 || true
-          echo "Sample files under Bible-DouayRheims-main/ (if exists):"
-          [ -d Bible-DouayRheims-main ] && find Bible-DouayRheims-main -type f | head -n 30 || true
 
       - name: Build site
         run: node build.mjs
