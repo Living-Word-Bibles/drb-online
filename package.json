@@ -1,9 +1,6 @@
 {
-"name": "drb-online",
-"version": "1.0.0",
-"type": "module",
-"scripts": {
-"build": "node build.mjs"
-},
-"devDependencies": {}
+  "name": "drb-online",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" }
 }
