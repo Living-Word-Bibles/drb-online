@@ -18,21 +18,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
+      - name: Check out (with Git LFS)
         uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
 
       - name: Use Node.js 20
+      ...
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Quick tree
+      - name: Sanity check — is the real JSON here?
         run: |
           node -v
           ls -la
-          echo "Root JSON present?"; [ -f EntireBible-DR.json ] && echo "✓ EntireBible-DR.json" || echo "✗ not found"
-          echo "Douay-Rheims/ top level:"
-          ls -la Douay-Rheims || true
+          echo "Top of EntireBible-DR.json (should NOT be an LFS pointer):"
+          head -n 3 EntireBible-DR.json || true
+          echo "Size:"
+          wc -c EntireBible-DR.json || true
+          file EntireBible-DR.json || true
+          if grep -q "git-lfs.github.com/spec/v1" EntireBible-DR.json; then
+            echo "❌ LFS pointer detected. The large file wasn't fetched."; exit 1
+          fi
 
       - name: Build site
         run: node build.mjs
