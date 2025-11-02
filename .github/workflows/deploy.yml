@@ -20,7 +20,7 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=6144
     steps:
-      - name: Check out
+      - name: Checkout (with Git LFS)
         uses: actions/checkout@v4
         with:
           lfs: true
@@ -34,14 +34,19 @@ jobs:
         with:
           node-version: 20
 
-      - name: Sanity check — data folder exists?
+      - name: Quick repo scan (non-fatal)
+        shell: bash
         run: |
+          set -e
+          echo "Root listing:"
           ls -la
-          if [ ! -d "Bible-DouayRheims-main" ]; then
-            echo "❌ Missing Bible-DouayRheims-main at repo root"; exit 1
-          fi
-          echo "Sample of discovered files (depth 3):"
-          find Bible-DouayRheims-main -maxdepth 3 -type f | head -n 40
+          echo "If present, show first lines & size of EntireBible-DR.json:"
+          [ -f EntireBible-DR.json ] && head -n 3 EntireBible-DR.json || true
+          [ -f EntireBible-DR.json ] && wc -c EntireBible-DR.json || true
+          echo "Sample files under Douay-Rheims/ (if exists):"
+          [ -d Douay-Rheims ] && find Douay-Rheims -type f | head -n 30 || true
+          echo "Sample files under Bible-DouayRheims-main/ (if exists):"
+          [ -d Bible-DouayRheims-main ] && find Bible-DouayRheims-main -type f | head -n 30 || true
 
       - name: Build site
         run: node build.mjs
